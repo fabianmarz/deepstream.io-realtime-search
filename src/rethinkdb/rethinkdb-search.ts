@@ -3,9 +3,8 @@ import { MongoClient, Collection, ChangeStream, ObjectID, FilterQuery } from 'mo
 import { splitEvery } from 'ramda'
 import { StdLogger } from '../logger/std-logger'
 import { PinoLogger } from '../logger/pino-logger'
-import { objectIDConvertor } from './util'
 
-export class MongoDBSearch implements RealtimeSearch {
+export class RethinkDBSearch implements RealtimeSearch {
   private collection: Collection
   private changeStream: ChangeStream
   private mongoQuery: FilterQuery<any> = this.query.query
@@ -89,53 +88,4 @@ export class MongoDBSearch implements RealtimeSearch {
       this.logger.error('Received an invalid search', error)
     }
   }
-}
-
-const mongonize = (result: any = {}, condition: any) => {
-  const [field, operator] = condition
-  let value = condition[2]
-
-  if (ObjectID.isValid(value) && value.toString().length === 24) {
-    value = new ObjectID(value)
-  }
-  switch (operator) {
-    case QueryOperators.EQUAL: {
-      result[field] = {$eq: value}
-      break
-    }
-    case QueryOperators.NOT_EQUAL: {
-      result[field] = {$ne: value}
-      break
-    }
-    case QueryOperators.IN: {
-      result[field] = {$in: value}
-      break
-    }
-    case QueryOperators.CONTAINS: {
-      result[field] = {name: `/${value}/`}
-      break
-    }
-    case QueryOperators.MATCH: {
-      const $options = value.startsWith('(?i)') ? '$i' : undefined
-      result[field] = {$regex: new RegExp(value.replace('(?i)', '')), $options }
-      break
-    }
-    case QueryOperators.GREATER_THAN: {
-      result[field] = {$gt: value}
-      break
-    }
-    case QueryOperators.GREATER_EQUAL_THEN: {
-      result[field] = {$gte: value}
-      break
-    }
-    case QueryOperators.LESS_THAN: {
-      result[field] = {$lt: value}
-      break
-    }
-    case QueryOperators.LESS_THAN_EQUAL: {
-      result[field] = {$lte: value}
-      break
-    }
-  }
-  return result
 }

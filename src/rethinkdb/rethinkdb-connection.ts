@@ -1,44 +1,49 @@
 import { DatabaseClient, RealtimeSearchConfig, RealtimeSearchCallbacks } from '../provider'
-import { MongoClient } from 'mongodb'
-import { MongoDBSearch } from './mongodb-search'
+import * as rethinkdb from 'rethinkdb'
+import { RethinkDBSearch } from './rethinkdb-search'
 import { Query } from '../provider'
 import { RealtimeSearch } from '../provider'
 import { StdLogger } from '../logger/std-logger'
 import { PinoLogger } from '../logger/pino-logger'
+import { TableManager } from '@deepstream/storage-rethinkdb/src/table-manager';
+import Table = WebAssembly.Table;
 
-interface MongoDBConfig extends RealtimeSearchConfig {
+interface RethinkDBConfig extends RealtimeSearchConfig {
     connectionConfig: {
-        connectionUrl: string,
-        poolSize: number
+        host: string,
+        port: number
     }
 }
 
-export class MongoDBConnection implements DatabaseClient {
-    private mongoClient!: MongoClient
+export class RethinkDBConnection implements DatabaseClient {
+    private connection: rethinkdb
+    private tableManager: TableManager
 
-    constructor (private config: MongoDBConfig, private logger: StdLogger | PinoLogger) {
+    constructor (private config: RethinkDBConfig, private logger: StdLogger | PinoLogger) {
     }
 
     public async start (): Promise<void> {
         this.logger.info('Initializing MongoDB Connection')
         try {
-          this.mongoClient = await MongoClient.connect(this.config.connectionConfig.connectionUrl, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true,
-            poolSize: this.config.connectionConfig.poolSize
-          })
-          this.mongoClient.db(this.config.database)
-          this.logger.info(`Connected successfully to mongodb database ${this.config.database}`)
+          this.connection = await rethinkdb.connect(this.config.connectionConfig)
+          const dbList = await rethinkdb.dbList().run(this.connection)
+          if (!dbList.includes(this.config.database)) {
+            await rethinkdb.dbCreate(this.config.database).run(this.connection)
+          }
+          this.connection.use(this.config.database)
+          this.tableManager = new TableManager(this.connection, this.config.database)
+          await this.tableManager.refreshTables()
+          this.logger.info(`Connected successfully to rethinkdb database ${this.config.database}`)
         } catch (e) {
-          this.logger.fatal('Error connecting to mongodb', e)
+          this.logger.fatal('Error connecting to rethinkdb', e)
         }
     }
 
-    public getSearch (logger: StdLogger | PinoLogger, database: string, query: Query, callbacks: RealtimeSearchCallbacks): RealtimeSearch {
-      return new MongoDBSearch(logger, database, query, callbacks, this.mongoClient, this.config.primaryKey, this.config.excludeTablePrefix, this.config.nativeQuery)
+    public getSearch (logger: StdLogger | PinoLogger, database: string, query: Query, callbacks: RealtimeSearchCallbacks): any {
+      //return new RethinkDBSearch(logger, database, query, callbacks, this.mongoClient, this.config.primaryKey, this.config.excludeTablePrefix, this.config.nativeQuery)
     }
 
     public async stop (): Promise<void> {
-        await this.mongoClient.close()
+        await this.connection.close()
     }
 }
