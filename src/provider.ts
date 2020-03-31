@@ -98,6 +98,7 @@ export class Provider {
       this.logger = new StdLogger(this.config.logLevel)
     }
     this.hashReplaceRegex = new RegExp(`^${this.config.listNamePrefix}(.*)`)
+    // this.databaseClient = new MongoDBConnection(this.config, this.logger)
     this.databaseClient = new MongoDBConnection(this.config, this.logger)
   }
 
