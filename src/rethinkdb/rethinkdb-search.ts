@@ -1,37 +1,45 @@
-import { Query, RealtimeSearch, RealtimeSearchCallbacks, QueryOperators } from '../provider'
-import { MongoClient, Collection, ChangeStream, ObjectID, FilterQuery } from 'mongodb'
-import { splitEvery } from 'ramda'
+import { Query, RealtimeSearch, RealtimeSearchCallbacks } from '../provider'
+import * as rethinkdb from 'rethinkdb'
 import { StdLogger } from '../logger/std-logger'
 import { PinoLogger } from '../logger/pino-logger'
 
 export class RethinkDBSearch implements RealtimeSearch {
-  private collection: Collection
-  private changeStream: ChangeStream
-  private mongoQuery: FilterQuery<any> = this.query.query
-  private isReady: boolean = false
+    private rethinkQuery: any = this.query.query
+    private isReady: boolean = false
+    // public subscription: number = 0
+    // private provider: any = ''
+    // private list: any = ''
+    // private rethinkQuery: any = this.query.query
+    private changeFeedCursor: any = null
+    private initialValues: Object = {}
 
   constructor (
     private logger: StdLogger | PinoLogger,
     private database: string,
     private query: Query,
     private callbacks: RealtimeSearchCallbacks,
-    private mongoClient: MongoClient,
+    private connection: rethinkdb.Connection,
     private primaryKey: string,
     private excludeTablePrefix: boolean,
-    nativeQuery: boolean
   ) {
-    if (!nativeQuery) {
-      this.mongoQuery = this.convertToMongoQuery({}, this.query.query)
-    } else {
-      this.mongoQuery = { $returnKey: true, ...this.mongoQuery }
-      this.logger.debug(`native query: ${JSON.stringify(this.mongoQuery)}`)
-      this.mongoQuery.$query = objectIDConvertor({}, this.mongoQuery.$query)
-    }
-
-    const db = this.mongoClient.db(this.database)
-    this.collection = db.collection(this.query.table)
-    this.changeStream = this.collection.watch([], {})
-    this.changeStream.on('change', this.runQuery.bind(this))
+    // this.mongoQuery = { $returnKey: true, ...this.mongoQuery }
+    // this.logger.debug(`native query: ${JSON.stringify(this.mongoQuery)}`)
+    // this.mongoQuery.$query = objectIDConvertor({}, this.mongoQuery.$query)
+    //
+    // const db = this.mongoClient.db(this.database)
+    // this.collection = db.collection(this.query.table)
+    // this.changeStream = this.collection.watch([], {})
+    // this.changeStream.on('change', this.runQuery.bind(this))
+    this.logger.info(JSON.stringify(this.query));
+    rethinkdb.table(this.query.table).filter(this.query.query).changes({
+      squash: true,
+      changefeedQueueSize: 100000,
+      includeInitial: true,
+      includeStates: true,
+      includeOffsets: false,
+      includeTypes: false,
+    })
+    .run(connection, this.runQuery.bind(this))
   }
 
   /**
@@ -39,7 +47,6 @@ export class RethinkDBSearch implements RealtimeSearch {
    */
   public async whenReady (): Promise<void> {
     if (!this.isReady) {
-      await this.runQuery()
       this.isReady = true
     }
   }
@@ -50,42 +57,25 @@ export class RethinkDBSearch implements RealtimeSearch {
    * as a result of the list being deleted.
    */
   public async stop (): Promise<void> {
-    this.changeStream.close()
+    if (this.changeFeedCursor) {
+      // this.changeFeedCursor.close()
+      this.changeFeedCursor = null
+    }
   }
 
-  private async runQuery () {
-    try {
-      const result = await this.collection.find(this.mongoQuery).toArray()
-      let entries = null
-      if (this.excludeTablePrefix) {
-        entries = result.map((r) => r[this.primaryKey])
-      } else {
-        entries = result.map((r) => `${this.query.table}/${r[this.primaryKey]}`)
-      }
-      this.callbacks.onResultsChanged(entries)
-    } catch (error) {
+  private async runQuery (error, cursor) {
+    this.changeFeedCursor = cursor;
+    if (error) {
       this.logger.error('Error running query', error)
     }
-  }
-
-  private convertToMongoQuery (result: any, condition: any[]): any {
-    if (typeof condition[0] === 'string') {
-      if (condition.length === 3) {
-        return mongonize(result, condition)
+    const entries = [];
+    cursor.each((error, row) => {
+      if (row.hasOwnProperty('new_val')) {
+        console.log('changed')
+        entries.push(row.new_val[this.primaryKey])
       }
-      if (condition.length > 3) {
-        result.$or = splitEvery(3, condition).map((c) => this.convertToMongoQuery({}, c))
-        return result
-      }
-    }
-
-    try {
-      condition.reduce((r, c) => {
-        return this.convertToMongoQuery(r, c)
-      }, result)
-      return result
-    } catch (error) {
-      this.logger.error('Received an invalid search', error)
-    }
+    });
+    console.log(JSON.stringify(entries));
+    this.callbacks.onResultsChanged(entries)
   }
 }

@@ -14,7 +14,8 @@ import { ListenResponse } from '@deepstream/client/dist/util/listener'
 
 import { StdLogger } from './logger/std-logger'
 import { PinoLogger } from './logger/pino-logger'
-import { MongoDBConnection } from './mongodb/mongodb-connection'
+// import { MongoDBConnection } from './mongodb/mongodb-connection'
+import { RethinkDBConnection } from './rethinkdb/rethinkdb-connection'
 export interface RealtimeSearch {
   whenReady: () => Promise<void>
   stop: () => Promise<void>
@@ -99,7 +100,7 @@ export class Provider {
     }
     this.hashReplaceRegex = new RegExp(`^${this.config.listNamePrefix}(.*)`)
     // this.databaseClient = new MongoDBConnection(this.config, this.logger)
-    this.databaseClient = new MongoDBConnection(this.config, this.logger)
+    this.databaseClient = new RethinkDBConnection(this.config, this.logger)
   }
 
   /**
